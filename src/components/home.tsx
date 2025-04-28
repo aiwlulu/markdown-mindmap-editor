@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useCallback } from "react";
 import SplitPaneLayout from "./SplitPaneLayout";
 import MarkdownEditor from "./MarkdownEditor";
 import MarkmapViewer from "./MarkmapViewer";
@@ -7,7 +7,6 @@ import {
   Save,
   FileText,
   Download,
-  Settings,
   Upload,
   Eye,
   Split,
@@ -19,77 +18,98 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "./ui/tooltip";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
+import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
 
-const Home = () => {
-  const [markdown, setMarkdown] = useState<string>(
-    "# Markdown Mind Map\n\n## Features\n- Real-time visualization\n- Split-screen interface\n- Markdown editing\n\n## Benefits\n- Easy to use\n- Visual organization\n- Quick note-taking\n\n## Use Cases\n- Project planning\n- Knowledge management\n- Brainstorming sessions",
-  );
+const DEFAULT_MARKDOWN = `# Markdown Mind Map
+
+## Features
+- Real-time visualization
+- Split-screen interface
+- Markdown editing
+
+## Benefits
+- Easy to use
+- Visual organization
+- Quick note-taking
+
+## Use Cases
+- Project planning
+- Knowledge management
+- Brainstorming sessions
+`;
+
+const Home: React.FC = () => {
+  const [markdown, setMarkdown] = useState<string>(DEFAULT_MARKDOWN);
   const [fileName, setFileName] = useState<string>("untitled.md");
+  const [baseName, setBaseName] = useState<string>("untitled");
   const [isEditingFileName, setIsEditingFileName] = useState<boolean>(false);
   const [viewMode, setViewMode] = useState<string>("split");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleMarkdownChange = (value: string) => {
+  const handleMarkdownChange = useCallback((value: string) => {
     setMarkdown(value);
-  };
+  }, []);
 
-  const handleSave = () => {
-    // Create a blob with the markdown content
+  const handleSave = useCallback(() => {
     const blob = new Blob([markdown], { type: "text/markdown" });
     const url = URL.createObjectURL(blob);
 
-    // Create a temporary link element to trigger the download
     const a = document.createElement("a");
     a.href = url;
     a.download = fileName;
     document.body.appendChild(a);
     a.click();
 
-    // Clean up
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-  };
+  }, [markdown, fileName]);
 
-  const handleNew = () => {
+  const handleNew = useCallback(() => {
     if (confirm("Create a new document? Unsaved changes will be lost.")) {
       setMarkdown("# New Mind Map");
+      setBaseName("untitled");
       setFileName("untitled.md");
     }
-  };
+  }, []);
 
-  const handleExport = () => {
-    // For now, we'll just download the markdown file
-    // In a future enhancement, we could export the mind map as an image
-    handleSave();
-  };
+  const handleFileUpload = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
 
-  const handleFileUpload = () => {
-    if (fileInputRef.current) {
-      fileInputRef.current.click();
-    }
-  };
+  const handleFileChange = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      if (!file) return;
 
-  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
+      const nameWithoutExtension = file.name.replace(/\.(md|markdown)$/i, "");
+      setBaseName(nameWithoutExtension);
+      setFileName(`${nameWithoutExtension}.md`);
 
-    // Update the filename
-    setFileName(file.name);
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const content = e.target?.result as string;
+        setMarkdown(content);
+      };
+      reader.readAsText(file);
 
-    // Read the file content
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const content = e.target?.result as string;
-      setMarkdown(content);
-    };
-    reader.readAsText(file);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    },
+    []
+  );
 
-    // Reset the file input
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
-    }
-  };
+  const handleFileNameEdit = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      setBaseName(e.target.value);
+    },
+    []
+  );
+
+  const handleFileNameSave = useCallback(() => {
+    setIsEditingFileName(false);
+    setFileName(`${baseName}.md`);
+  }, [baseName]);
 
   return (
     <div className="flex flex-col h-screen bg-background">
@@ -98,28 +118,35 @@ const Home = () => {
         <div className="flex items-center space-x-4">
           <h1 className="text-xl font-bold">Markdown Mind Map</h1>
           {isEditingFileName ? (
-            <input
-              type="text"
-              value={fileName}
-              onChange={(e) => setFileName(e.target.value)}
-              onBlur={() => setIsEditingFileName(false)}
-              onKeyDown={(e) =>
-                e.key === "Enter" && setIsEditingFileName(false)
-              }
-              autoFocus
-              className="text-sm border rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-primary"
-            />
+            <div className="flex items-center space-x-1">
+              <input
+                type="text"
+                value={baseName}
+                onChange={handleFileNameEdit}
+                onBlur={handleFileNameSave}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    handleFileNameSave();
+                  }
+                }}
+                autoFocus
+                className="text-sm border rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+              <span className="text-sm text-muted-foreground">.md</span>
+            </div>
           ) : (
             <span
               className="text-sm text-muted-foreground cursor-pointer hover:text-foreground"
               onDoubleClick={() => setIsEditingFileName(true)}
-              title="Double-click to edit"
+              title="Double-click to edit filename"
             >
               {fileName}
             </span>
           )}
         </div>
+
         <div className="flex items-center space-x-2">
+          {/* Toolbar Buttons */}
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -127,9 +154,7 @@ const Home = () => {
                   <FileText className="h-4 w-4" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>
-                <p>New Document</p>
-              </TooltipContent>
+              <TooltipContent>New Document</TooltipContent>
             </Tooltip>
           </TooltipProvider>
 
@@ -144,17 +169,15 @@ const Home = () => {
                   <Upload className="h-4 w-4" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>
-                <p>Upload Markdown File</p>
-              </TooltipContent>
+              <TooltipContent>Upload Markdown File</TooltipContent>
             </Tooltip>
           </TooltipProvider>
           <input
-            type="file"
             ref={fileInputRef}
-            className="hidden"
+            type="file"
             accept=".md,.markdown,text/markdown"
             onChange={handleFileChange}
+            className="hidden"
           />
 
           <TooltipProvider>
@@ -164,36 +187,33 @@ const Home = () => {
                   <Save className="h-4 w-4" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>
-                <p>Save Document</p>
-              </TooltipContent>
+              <TooltipContent>Save Document</TooltipContent>
             </Tooltip>
           </TooltipProvider>
 
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button variant="outline" size="icon" onClick={handleExport}>
+                <Button variant="outline" size="icon" onClick={handleSave}>
                   <Download className="h-4 w-4" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>
-                <p>Export Mind Map</p>
-              </TooltipContent>
+              <TooltipContent>Export Mind Map</TooltipContent>
             </Tooltip>
           </TooltipProvider>
 
-          <div className="border-l mx-2 h-6"></div>
+          <div className="border-l mx-2 h-6" />
 
-          <Tabs value={viewMode} onValueChange={setViewMode} className="w-auto">
+          {/* View Mode Tabs */}
+          <Tabs value={viewMode} onValueChange={setViewMode}>
             <TabsList className="grid grid-cols-3 w-auto">
-              <TabsTrigger value="markdown" className="px-2 py-1">
+              <TabsTrigger value="markdown">
                 <FileCode className="h-4 w-4" />
               </TabsTrigger>
-              <TabsTrigger value="mindmap" className="px-2 py-1">
+              <TabsTrigger value="mindmap">
                 <Eye className="h-4 w-4" />
               </TabsTrigger>
-              <TabsTrigger value="split" className="px-2 py-1">
+              <TabsTrigger value="split">
                 <Split className="h-4 w-4" />
               </TabsTrigger>
             </TabsList>
